@@ -23,21 +23,21 @@ def parse_pdf_report(pdf_file):
         if len(pdf.pages) > 0:
             first_page_text = pdf.pages[0].extract_text() or ""
             for line in first_page_text.split('\n'):
-                line_lower = line.lower()
-                # Шукаємо ключові фрази з шапки звітності
-                if any(phrase in line_lower for phrase in [
-                    "середня кількість працівників", 
-                    "середньооблікова кількість", 
-                    "кількість працівників", 
-                    "середньооблікова чисельність"
-                ]):
-                    # Шукаємо перше число у цьому рядку або в найближчих символах
-                    matches = re.findall(r'\b\d+\b', line)
-                    if matches:
-                        try:
-                            data["EMPLOYEES"] = float(matches[-1]) # Беремо останнє число з рядка (часто це саме цифра кількості)
-                        except ValueError:
-                            pass
+                line_clean = line.replace('\xa0', ' ').strip()
+                line_lower = line_clean.lower()
+                
+                # Перевіряємо чи рядок містить ключові слова шапки
+                if any(k in line_lower for k in ["працівник", "чисельність", "штатн"]):
+                    # Шукаємо невеликі числа (від 1 до 4 цифр), які йдуть після тексту
+                    # Ігноруємо коди ЄДРПОУ (8 цифр) та КВЕД (4-5 цифр з крапками)
+                    numbers = re.findall(r'\b(\d{1,4})\b', line_clean)
+                    if numbers:
+                        # Зазвичай потрібне число є останнім у цьому рядку шапки
+                        candidate = float(numbers[-1])
+                        # Додатковий захист: кількість працівників рідко перевищує 9999 в одній комірці шапки
+                        if 0 < candidate < 10000:
+                            data["EMPLOYEES"] = candidate
+                            break
         
         for page in pdf.pages:
             text = page.extract_text()
