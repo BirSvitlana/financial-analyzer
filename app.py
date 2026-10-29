@@ -15,6 +15,10 @@ def parse_pdf_report(pdf_file):
     if pdf_file is None:
         return data
 
+    # Регулярне вираження для пошуку числових значень (включаючи дужки та мінуси)
+    # Шукає форми: (1 234,5), -1234, 1234.5, ( 123 )
+    number_pattern = re.compile(r'\(?\s*\-?\s*\d[\d\s]*[.,]?\d*\s*\)?')
+
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
             text = page.extract_text()
@@ -22,51 +26,62 @@ def parse_pdf_report(pdf_file):
                 continue
             
             for line in text.split('\n'):
-                # Нормалізуємо пробіли (видаляємо нерозривні пробіли)
                 clean_line = line.replace('\xa0', ' ').strip()
                 
-                # Шукаємо код рядка (точно 4 цифри)
+                # Шукаємо код рядка (точно 4 цифри підряд)
                 code_match = re.search(r'\b(\d{4})\b', clean_line)
                 if not code_match:
                     continue
                 
                 code = code_match.group(1)
+                code_num = int(code)
                 
-                # Знаходимо всі числові значення після коду рядка
-                # Враховуємо числа в дужках (123), з минусом -123 та з пробілами 1 234,5
+                # Обробляємо лише релевантні коди Ф1 та Ф2
+                if not ((1000 <= code_num <= 1900) or (2000 <= code_num <= 2550)):
+                    continue
+                
+                # Беремо текст strictly ПІСЛЯ знайденого коду рядка
                 after_code_text = clean_line[code_match.end():]
-                value_matches = re.findall(r'(\(?\-?\s*\d+[\d\s]*[.,]?\d*\)?)', after_code_text)
                 
-                # Фільтруємо знайдені шматочки, щоб залишити тільки справжні числа
+                # Знаходимо всі підрядки, схожі на числа
+                raw_matches = number_pattern.findall(after_code_text)
+                
                 clean_values = []
-                for val_str in value_matches:
-                    v = val_str.strip()
-                    if not v or v == '-':
+                for raw in raw_matches:
+                    val_str = raw.strip()
+                    if not val_str or val_str == '-':
                         continue
                     
-                    is_neg = False
-                    if v.startswith('(') and v.endswith(')'):
-                        is_neg = True
-                        v = v[1:-1]
+                    # Перевіряємо чи це від'ємне значення у дужках
+                    is_negative = False
+                    if val_str.startswith('(') and val_str.endswith(')'):
+                        is_negative = True
+                        val_str = val_str[1:-1].strip()
+                    elif val_str.startswith('-'):
+                        is_negative = True
+                        val_str = val_str[1:].strip()
                     
-                    v_clean = v.replace(" ", "").replace(",", ".")
+                    # Видаляємо пробіли та міняємо кому на крапку
+                    val_str = val_str.replace(" ", "").replace(",", ",")
+                    
+                    # Пропускаємо порожні або нечислові фрагменти
                     try:
-                        num = float(v_clean)
-                        clean_values.append(-num if is_neg else num)
+                        val = float(val_str)
+                        clean_values.append(-val if is_negative else val)
                     except ValueError:
                         pass
                 
                 if not clean_values:
                     continue
                 
-                # ЛОГІКА РОЗДІЛЕННЯ Ф1 ТА Ф2:
-                # Якщо це Баланс (Ф1, коди рядків 1000–1900) -> беремо ОСТАННЄ число (на кінець року)
-                if 1000 <= int(code) <= 1900:
-                    data[code] = clean_values[-1]
-                
-                # Якщо це Звіт про фін. результати (Ф2, коди рядків 2000–2550) -> беремо ПЕРШЕ число (звітний період)
-                elif 2000 <= int(code) <= 2550:
-                    data[code] = clean_values[0]
+                # Фіксація значень (беремо лише перший запис для кожного коду):
+                if code not in data:
+                    if 1000 <= code_num <= 1900:
+                        # Баланс (Ф1) -> ОСТАННЄ число (кінець звітного періоду)
+                        data[code] = clean_values[-1]
+                    elif 2000 <= code_num <= 2550:
+                        # Звіт про фін. результати (Ф2) -> ПЕРШЕ число (звітний період)
+                        data[code] = clean_values[0]
 
     return data
 
