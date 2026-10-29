@@ -20,6 +20,25 @@ def parse_pdf_report(pdf_file):
     number_pattern = re.compile(r'\(?\s*\-?\s*\d[\d\s]*[.,]?\d*\s*\)?')
 
     with pdfplumber.open(pdf_file) as pdf:
+        if len(pdf.pages) > 0:
+            first_page_text = pdf.pages[0].extract_text() or ""
+            for line in first_page_text.split('\n'):
+                line_lower = line.lower()
+                # Шукаємо ключові фрази з шапки звітності
+                if any(phrase in line_lower for phrase in [
+                    "середня кількість працівників", 
+                    "середньооблікова кількість", 
+                    "кількість працівників", 
+                    "середньооблікова чисельність"
+                ]):
+                    # Шукаємо перше число у цьому рядку або в найближчих символах
+                    matches = re.findall(r'\b\d+\b', line)
+                    if matches:
+                        try:
+                            data["EMPLOYEES"] = float(matches[-1]) # Беремо останнє число з рядка (часто це саме цифра кількості)
+                        except ValueError:
+                            pass
+        
         for page in pdf.pages:
             text = page.extract_text()
             if not text:
