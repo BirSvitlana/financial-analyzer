@@ -22,17 +22,49 @@ def parse_pdf_report(pdf_file):
                 continue
 
             for line in text.split('\n'):
-                # Шукаємо код рядка (4 цифри) та числове значення
-                match = re.search(r'\b(\d{4})\b.*?\b(-?\d+[\d\s]*[.,]?\d*)\b', line)
+                # Нормалізуємо пробіли (замінюємо нерозривні пробіли на звичайні)
+                clean_line = line.replace('\xa0', ' ').strip()
+                
+                # Регулярне вираження шукає:
+                # 1. Код рядка (точно 4 цифри)
+                # 2. Перше число після нього (звітний період), яке може бути:
+                #    - у дужках: (1 234,5) або (1234)
+                #    - зі знаком мінус: -1 234
+                #    - звичайним: 1 234,5
+                match = re.search(
+                    r'\b(\d{4})\b.*?\b(\(?\-?\s*\d+[\d\s]*[.,]?\d*\)?)\b', 
+                    clean_line
+                )
                 if match:
                     code = match.group(1)
-                    val_str = match.group(2).replace(" ", "").replace(",", ".")
+                    val_str = match.group(2).strip()
+                    
+                    # Перевірка на від'ємне значення у дужках: (123) -> -123
+                    is_negative = False
+                    if val_str.startswith('(') and val_str.endswith(')'):
+                        is_negative = True
+                        val_str = val_str[1:-1]
+                    
+                    # Видаляємо пробіли всередині числа та замінюємо кому на крапку
+                    val_str = val_str.replace(" ", "").replace(",", ".")
+                    
                     try:
-                        data[code] = float(val_str)
+                        val = float(val_str)
+                        if is_negative:
+                            val = -val
+                        
+                        # Записуємо код лише один раз (перше знайдене співпадіння)
+                        if code not in data:
+                            data[code] = val
                     except ValueError:
                         pass
+                        
     return data
-
+if pdf_2023:
+    with st.expander("🔍 Перевірити витягнуті дані з PDF за 2023 рік"):
+        debug_data = parse_pdf_report(pdf_2023)
+        st.write("Зчитане значення рядка 2350 (Чистий прибуток):", debug_data.get("2350", "НЕ ЗНАЙДЕНО"))
+        st.json(debug_data)
 
 # ==============================================================================
 # 2. МОДУЛЬ ГЕНЕРАЦІЇ EXCEL (4 ТАБЛИЦІ МІНФІНУ С ЗВ'ЯЗАНИМИ ФОРМУЛАМИ)
