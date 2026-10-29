@@ -38,7 +38,6 @@ def parse_pdf_report(pdf_file):
                         if 0 < candidate < 10000:
                             data["EMPLOYEES"] = candidate
                             break
-        
         for page in pdf.pages:
             text = page.extract_text()
             if not text:
