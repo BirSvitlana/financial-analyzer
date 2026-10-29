@@ -20,45 +20,54 @@ def parse_pdf_report(pdf_file):
             text = page.extract_text()
             if not text:
                 continue
-
+            
             for line in text.split('\n'):
-                # Нормалізуємо пробіли (замінюємо нерозривні пробіли на звичайні)
+                # Нормалізуємо пробіли (видаляємо нерозривні пробіли)
                 clean_line = line.replace('\xa0', ' ').strip()
                 
-                # Регулярне вираження шукає:
-                # 1. Код рядка (точно 4 цифри)
-                # 2. Перше число після нього (звітний період), яке може бути:
-                #    - у дужках: (1 234,5) або (1234)
-                #    - зі знаком мінус: -1 234
-                #    - звичайним: 1 234,5
-                match = re.search(
-                    r'\b(\d{4})\b.*?\b(\(?\-?\s*\d+[\d\s]*[.,]?\d*\)?)\b', 
-                    clean_line
-                )
-                if match:
-                    code = match.group(1)
-                    val_str = match.group(2).strip()
+                # Шукаємо код рядка (точно 4 цифри)
+                code_match = re.search(r'\b(\d{4})\b', clean_line)
+                if not code_match:
+                    continue
+                
+                code = code_match.group(1)
+                
+                # Знаходимо всі числові значення після коду рядка
+                # Враховуємо числа в дужках (123), з минусом -123 та з пробілами 1 234,5
+                after_code_text = clean_line[code_match.end():]
+                value_matches = re.findall(r'(\(?\-?\s*\d+[\d\s]*[.,]?\d*\)?)', after_code_text)
+                
+                # Фільтруємо знайдені шматочки, щоб залишити тільки справжні числа
+                clean_values = []
+                for val_str in value_matches:
+                    v = val_str.strip()
+                    if not v or v == '-':
+                        continue
                     
-                    # Перевірка на від'ємне значення у дужках: (123) -> -123
-                    is_negative = False
-                    if val_str.startswith('(') and val_str.endswith(')'):
-                        is_negative = True
-                        val_str = val_str[1:-1]
+                    is_neg = False
+                    if v.startswith('(') and v.endswith(')'):
+                        is_neg = True
+                        v = v[1:-1]
                     
-                    # Видаляємо пробіли всередині числа та замінюємо кому на крапку
-                    val_str = val_str.replace(" ", "").replace(",", ".")
-                    
+                    v_clean = v.replace(" ", "").replace(",", ".")
                     try:
-                        val = float(val_str)
-                        if is_negative:
-                            val = -val
-                        
-                        # Записуємо код лише один раз (перше знайдене співпадіння)
-                        if code not in data:
-                            data[code] = val
+                        num = float(v_clean)
+                        clean_values.append(-num if is_neg else num)
                     except ValueError:
                         pass
-                        
+                
+                if not clean_values:
+                    continue
+                
+                # ЛОГІКА РОЗДІЛЕННЯ Ф1 ТА Ф2:
+                # Якщо це Баланс (Ф1, коди рядків 1000–1900) -> беремо ОСТАННЄ число (на кінець року)
+                if 1000 <= int(code) <= 1900:
+                    data[code] = clean_values[-1]
+                
+                # Якщо це Звіт про фін. результати (Ф2, коди рядків 2000–2550) -> беремо ПЕРШЕ число (звітний період)
+                elif 2000 <= int(code) <= 2550:
+                    data[code] = clean_values[0]
+
     return data
 
 
